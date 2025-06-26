@@ -1,7 +1,5 @@
-import React, { useState, ChangeEvent } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { auth } from '../firebaseConfig';
-import { signInWithEmailAndPassword, createUserWithEmailAndPassword, fetchSignInMethodsForEmail, sendEmailVerification } from 'firebase/auth';
 import {
   Box, Button, Container, TextField, Typography, Paper, Stack, Alert, Link,
   FormControl, InputLabel, Select, MenuItem, SelectChangeEvent, InputAdornment
@@ -10,201 +8,63 @@ import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import axios from 'axios';
-import { Email, Lock, Person, Wc, CalendarToday } from '@mui/icons-material';
+import { Email, Person, Wc, CalendarToday, Phone, WhatsApp } from '@mui/icons-material';
 
 const Login: React.FC = () => {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
+  const [step, setStep] = useState(1); // 1: بيانات, 2: OTP
+  const [phone, setPhone] = useState('');
+  const [otp, setOtp] = useState('');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
+  const [email, setEmail] = useState('');
   const [gender, setGender] = useState('');
   const [dateOfBirth, setDateOfBirth] = useState<Date | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isSignUp, setIsSignUp] = useState(false);
-  const [verificationSent, setVerificationSent] = useState(false);
+  const [success, setSuccess] = useState<string | null>(null);
   const navigate = useNavigate();
 
-  const validateEmail = (email: string) => {
-    const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return re.test(email);
+  const validatePhone = (phone: string) => {
+    // يجب أن يبدأ بـ + ويحتوي على 10 أرقام على الأقل
+    return /^\+\d{10,}$/.test(phone);
   };
 
-  const validatePassword = (password: string) => {
-    // Password must be at least 6 characters and contain at least one number
-    return password.length >= 6 && /\d/.test(password);
-  };
-
-  const handleGenderChange = (event: SelectChangeEvent) => {
-    setGender(event.target.value);
-    setError(null);
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSendOTP = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-
-    // Validate email for both sign in and sign up
-    if (!validateEmail(email)) {
-      setError('Please enter a valid email address');
-      return;
-    }
-
-    if (isSignUp) {
-      // Additional validations for sign up
-      if (!validatePassword(password)) {
-        setError('Password must be at least 6 characters long and contain at least one number');
-        return;
-      }
-
-      if (password !== confirmPassword) {
-        setError('Passwords do not match');
-        return;
-      }
-
-      if (!firstName.trim()) {
-        setError('Please enter your first name');
-        return;
-      }
-
-      if (!lastName.trim()) {
-        setError('Please enter your last name');
-        return;
-      }
-
-      if (!gender) {
-        setError('Please select your gender');
-        return;
-      }
-
-      if (!dateOfBirth) {
-        setError('Please select your date of birth');
-        return;
-      }
-
-      // Check if user is at least 13 years old
-      const today = new Date();
-      const age = today.getFullYear() - dateOfBirth.getFullYear();
-      const monthDiff = today.getMonth() - dateOfBirth.getMonth();
-      if (age < 13 || (age === 13 && monthDiff < 0)) {
-        setError('You must be at least 13 years old to sign up');
-        return;
-      }
-
-      // Check if email already exists before attempting to create account
-      try {
-        const methods = await fetchSignInMethodsForEmail(auth, email);
-        if (methods && methods.length > 0) {
-          setError('This email is already registered. Please sign in instead.');
-          return;
-        }
-      } catch (err) {
-        console.error('Error checking email:', err);
-        setError('An error occurred while checking email availability. Please try again.');
-        return;
-      }
-    }
-
+    setSuccess(null);
+    if (!firstName.trim()) return setError('Please enter your first name');
+    if (!lastName.trim()) return setError('Please enter your last name');
+    if (!gender) return setError('Please select your gender');
+    if (!dateOfBirth) return setError('Please select your date of birth');
+    if (!validatePhone(phone)) return setError('Please enter a valid phone number (e.g. +201234567890)');
     setLoading(true);
-
     try {
-      console.log('Attempting to', isSignUp ? 'sign up' : 'sign in', 'with:', { email });
-      
-      if (isSignUp) {
-        // Sign Up
-        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-        console.log('Sign up successful:', userCredential.user);
-
-        // Send email verification
-        await sendEmailVerification(userCredential.user);
-        setVerificationSent(true);
-        setError('A verification email has been sent. Please verify your email before signing in.');
-
-        // Create user profile in our database
-        try {
-          const response = await axios.post(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/users/profile`, {
-            firebaseUid: userCredential.user.uid,
-            email: userCredential.user.email,
-            firstName,
-            lastName,
-            gender
-          });
-          console.log('User profile created:', response.data);
-        } catch (err) {
-          console.error('Error creating user profile:', err);
-          // If profile creation fails, delete the Firebase user
-          await userCredential.user.delete();
-          throw new Error('Failed to create user profile. Please try again.');
-        }
-
-        // Do not sign in automatically after sign up
-        return;
-      } else {
-        // Sign In
-        const userCredential = await signInWithEmailAndPassword(auth, email, password);
-        console.log('Sign in successful:', userCredential.user);
-
-        // Check if email is verified
-        if (!userCredential.user.emailVerified) {
-          setError('Please verify your email before signing in.');
-          // Optionally, offer to resend verification email
-          return;
-        }
-
-        // Check if user exists in MongoDB
-        try {
-          const response = await axios.get(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/users/firebase/${userCredential.user.uid}`);
-          console.log('MongoDB user check response:', response.data);
-          
-          if (!response.data) {
-            // If user doesn't exist in MongoDB, create it
-            console.log('Creating MongoDB user profile...');
-            const createResponse = await axios.post(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/users/profile`, {
-              firebaseUid: userCredential.user.uid,
-              email: userCredential.user.email,
-              firstName: '', // These will be empty for existing users
-              lastName: '',
-              gender: ''
-            });
-            console.log('MongoDB user profile created:', createResponse.data);
-          }
-        } catch (err) {
-          console.error('Error checking/creating MongoDB user:', err);
-          // Continue with sign in even if MongoDB operations fail
-        }
-      }
-      
-      navigate('/');
+      await axios.post(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/auth/send-otp`, { phone });
+      setStep(2);
+      setSuccess('OTP sent via WhatsApp!');
     } catch (err: any) {
-      console.error('Authentication error:', err);
-      
-      // Handle specific error cases
-      switch (err.code) {
-        case 'auth/operation-not-allowed':
-          setError('Email/Password authentication is not enabled. Please contact support.');
-          break;
-        case 'auth/email-already-in-use':
-          setError('This email is already registered. Please sign in instead.');
-          break;
-        case 'auth/invalid-email':
-          setError('Please enter a valid email address.');
-          break;
-        case 'auth/weak-password':
-          setError('Password must be at least 6 characters long and contain at least one number.');
-          break;
-        case 'auth/user-not-found':
-          setError('No account found with this email. Please sign up first.');
-          break;
-        case 'auth/wrong-password':
-          setError('Incorrect password. Please try again.');
-          break;
-        case 'auth/invalid-credential':
-          setError('Invalid email or password. Please check your credentials and try again.');
-          break;
-        default:
-          setError(err.message || 'Authentication failed. Please try again.');
-      }
+      setError(err.response?.data?.error || 'Failed to send OTP');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyOTP = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSuccess(null);
+    if (!otp.trim()) return setError('Please enter the code you received on WhatsApp');
+    setLoading(true);
+    try {
+      const res = await axios.post(`${process.env.REACT_APP_API_URL || 'http://localhost:5000'}/api/auth/verify-otp`, {
+        phone, code: otp, firstName, lastName, email, gender
+      });
+      setSuccess('Account verified and logged in!');
+      // يمكنك هنا حفظ بيانات المستخدم في localStorage أو context
+      setTimeout(() => navigate('/'), 1000);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to verify code');
     } finally {
       setLoading(false);
     }
@@ -223,211 +83,142 @@ const Login: React.FC = () => {
             Share Dish
           </Typography>
           <Typography variant="subtitle1" align="center" color="text.secondary" gutterBottom>
-            {isSignUp ? 'Create an account to share and discover meals!' : 'Sign in to share and discover meals!'}
+            Create an account to share and discover meals!
           </Typography>
         </Box>
         {error && (
-          <Alert severity="error" sx={{ mt: 2, mb: 2 }}>
-            {error}
-          </Alert>
+          <Alert severity="error" sx={{ mt: 2, mb: 2 }}>{error}</Alert>
         )}
-        {verificationSent && (
-          <Alert severity="info" sx={{ mt: 2, mb: 2 }}>
-            A verification email has been sent to <b>{email}</b>. Please check your inbox and verify your email before signing in.
-          </Alert>
+        {success && (
+          <Alert severity="success" sx={{ mt: 2, mb: 2 }}>{success}</Alert>
         )}
-        <form onSubmit={handleSubmit}>
-          <Stack spacing={2} mt={3}>
-            {isSignUp && (
-              <>
-                <TextField
-                  label="First Name"
-                  value={firstName}
-                  onChange={(e: ChangeEvent<HTMLInputElement>) => {
-                    setFirstName(e.target.value);
-                    setError(null);
-                  }}
-                  fullWidth
-                  required
-                  error={!!error && error.includes('first name')}
-                  helperText={error && error.includes('first name') ? error : "Enter your first name"}
-                  InputProps={{
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <Person />
-                      </InputAdornment>
-                    ),
-                  }}
-                />
-                <TextField
-                  label="Last Name"
-                  value={lastName}
-                  onChange={(e: ChangeEvent<HTMLInputElement>) => {
-                    setLastName(e.target.value);
-                    setError(null);
-                  }}
-                  fullWidth
-                  required
-                  error={!!error && error.includes('last name')}
-                  helperText={error && error.includes('last name') ? error : "Enter your last name"}
-                  InputProps={{
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <Person />
-                      </InputAdornment>
-                    ),
-                  }}
-                />
-              </>
-            )}
-            <TextField
-              label="Email"
-              type="email"
-              value={email}
-              onChange={(e: ChangeEvent<HTMLInputElement>) => {
-                setEmail(e.target.value);
-                setError(null);
-              }}
-              fullWidth
-              required
-              error={!!error && error.includes('email')}
-              helperText={error && error.includes('email') ? error : "Enter your email address"}
-              autoComplete="email"
-              InputProps={{
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <Email />
-                  </InputAdornment>
-                ),
-              }}
-            />
-            <TextField
-              label="Password"
-              type="password"
-              value={password}
-              onChange={(e: ChangeEvent<HTMLInputElement>) => {
-                setPassword(e.target.value);
-                setError(null);
-              }}
-              fullWidth
-              required
-              error={!!error && error.includes('password')}
-              helperText={
-                error && error.includes('password') 
-                  ? error 
-                  : isSignUp 
-                    ? "Password must be at least 6 characters and contain a number" 
-                    : "Enter your password"
-              }
-              autoComplete={isSignUp ? "new-password" : "current-password"}
-              InputProps={{
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <Lock />
-                  </InputAdornment>
-                ),
-              }}
-            />
-            {isSignUp && (
-              <>
-                <TextField
-                  label="Confirm Password"
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(e: ChangeEvent<HTMLInputElement>) => {
-                    setConfirmPassword(e.target.value);
-                    setError(null);
-                  }}
-                  fullWidth
-                  required
-                  error={!!error && error.includes('match')}
-                  helperText={error && error.includes('match') ? error : "Confirm your password"}
-                  autoComplete="new-password"
-                  InputProps={{
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <Lock />
-                      </InputAdornment>
-                    ),
+        {step === 1 && (
+          <form onSubmit={handleSendOTP}>
+            <Stack spacing={2} mt={3}>
+              <TextField
+                label="First Name"
+                value={firstName}
+                onChange={e => setFirstName(e.target.value)}
+                fullWidth
+                required
+                InputProps={{ startAdornment: (<InputAdornment position="start"><Person /></InputAdornment>) }}
+              />
+              <TextField
+                label="Last Name"
+                value={lastName}
+                onChange={e => setLastName(e.target.value)}
+                fullWidth
+                required
+                InputProps={{ startAdornment: (<InputAdornment position="start"><Person /></InputAdornment>) }}
+              />
+              <TextField
+                label="Phone Number"
+                value={phone}
+                onChange={e => setPhone(e.target.value)}
+                fullWidth
+                required
+                placeholder="e.g. +201234567890"
+                InputProps={{ startAdornment: (<InputAdornment position="start"><Phone /></InputAdornment>) }}
+              />
+              <TextField
+                label="Email (optional)"
+                type="email"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                fullWidth
+                InputProps={{ startAdornment: (<InputAdornment position="start"><Email /></InputAdornment>) }}
+              />
+              <FormControl fullWidth required>
+                <InputLabel>Gender</InputLabel>
+                <Select
+                  value={gender}
+                  label="Gender"
+                  onChange={(e: SelectChangeEvent) => setGender(e.target.value)}
+                >
+                  <MenuItem value="male">Male</MenuItem>
+                  <MenuItem value="female">Female</MenuItem>
+                  <MenuItem value="other">Other</MenuItem>
+                  <MenuItem value="prefer-not-to-say">Prefer not to say</MenuItem>
+                </Select>
+              </FormControl>
+              <LocalizationProvider dateAdapter={AdapterDateFns}>
+                <DatePicker
+                  label="Date of Birth"
+                  value={dateOfBirth}
+                  onChange={newValue => setDateOfBirth(newValue)}
+                  slotProps={{
+                    textField: {
+                      fullWidth: true,
+                      required: true,
+                      InputProps: {
+                        startAdornment: (
+                          <InputAdornment position="start">
+                            <CalendarToday />
+                          </InputAdornment>
+                        ),
+                      },
+                    }
                   }}
                 />
-                <FormControl fullWidth required error={!!error && error.includes('gender')}>
-                  <InputLabel>Gender</InputLabel>
-                  <Select
-                    value={gender}
-                    label="Gender"
-                    onChange={handleGenderChange}
-                  >
-                    <MenuItem value="male">Male</MenuItem>
-                    <MenuItem value="female">Female</MenuItem>
-                    <MenuItem value="other">Other</MenuItem>
-                    <MenuItem value="prefer-not-to-say">Prefer not to say</MenuItem>
-                  </Select>
-                </FormControl>
-                <LocalizationProvider dateAdapter={AdapterDateFns}>
-                  <DatePicker
-                    label="Date of Birth"
-                    value={dateOfBirth}
-                    onChange={(newValue: Date | null) => {
-                      setDateOfBirth(newValue);
-                      setError(null);
-                    }}
-                    slotProps={{
-                      textField: {
-                        fullWidth: true,
-                        required: true,
-                        error: !!error && error.includes('birth'),
-                        helperText: error && error.includes('birth') ? error : "Select your date of birth",
-                        InputProps: {
-                          startAdornment: (
-                            <InputAdornment position="start">
-                              <CalendarToday />
-                            </InputAdornment>
-                          ),
-                        },
-                      }
-                    }}
-                  />
-                </LocalizationProvider>
-              </>
-            )}
-            <Button
-              type="submit"
-              variant="contained"
-              disabled={loading || !email || !password || (isSignUp && (!confirmPassword || !gender || !dateOfBirth || !firstName || !lastName))}
-              sx={{ fontWeight: 600, py: 1.2, fontSize: '1rem', mt: 1 }}
-            >
-              {loading ? 'Please wait...' : (isSignUp ? 'Sign Up' : 'Sign In')}
-            </Button>
-            <Box sx={{ display: 'flex', alignItems: 'center', my: 2 }}>
-              <Box sx={{ flex: 1, height: 1, background: '#e0e0e0' }} />
-              <Typography variant="body2" color="text.secondary" sx={{ mx: 2 }}>
-                OR
-              </Typography>
-              <Box sx={{ flex: 1, height: 1, background: '#e0e0e0' }} />
-            </Box>
-            <Box textAlign="center">
-              <Link
-                component="button"
-                variant="body2"
-                onClick={() => {
-                  setIsSignUp(!isSignUp);
-                  setError(null);
-                  setEmail('');
-                  setPassword('');
-                  setConfirmPassword('');
-                  setFirstName('');
-                  setLastName('');
-                  setGender('');
-                  setDateOfBirth(null);
-                }}
-                sx={{ textDecoration: 'none', fontWeight: 600 }}
+              </LocalizationProvider>
+              <Button
+                type="submit"
+                variant="contained"
+                disabled={loading}
+                sx={{ fontWeight: 600, py: 1.2, fontSize: '1rem', mt: 1 }}
               >
-                {isSignUp ? 'Already have an account? Sign In' : "Don't have an account? Sign Up"}
-              </Link>
-            </Box>
-          </Stack>
-        </form>
+                {loading ? 'Please wait...' : 'Send Code via WhatsApp'}
+              </Button>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
+                <WhatsApp color="success" />
+                <Typography variant="body2" color="text.secondary">
+                  To receive the code via WhatsApp, send <b>join government-think</b> to <b>+14155238886</b> first.
+                </Typography>
+                <Button
+                  variant="outlined"
+                  color="success"
+                  size="small"
+                  startIcon={<WhatsApp />}
+                  href="https://wa.me/14155238886?text=join%20government-think"
+                  target="_blank"
+                  sx={{ ml: 1 }}
+                >
+                  Open WhatsApp
+                </Button>
+              </Box>
+            </Stack>
+          </form>
+        )}
+        {step === 2 && (
+          <form onSubmit={handleVerifyOTP}>
+            <Stack spacing={2} mt={3}>
+              <TextField
+                label="Enter the code you received on WhatsApp"
+                value={otp}
+                onChange={e => setOtp(e.target.value)}
+                fullWidth
+                required
+                autoFocus
+              />
+              <Button
+                type="submit"
+                variant="contained"
+                disabled={loading}
+                sx={{ fontWeight: 600, py: 1.2, fontSize: '1rem', mt: 1 }}
+              >
+                {loading ? 'Please wait...' : 'Verify Code'}
+              </Button>
+              <Button
+                variant="text"
+                color="primary"
+                onClick={() => setStep(1)}
+                sx={{ mt: 1 }}
+              >
+                Back to Registration
+              </Button>
+            </Stack>
+          </form>
+        )}
       </Paper>
     </Container>
   );
