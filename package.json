@@ -1,0 +1,30 @@
+{
+  "name": "share-dish-project",
+  "version": "1.0.0",
+  "description": "Share Dish - Food sharing platform",
+  "main": "index.js",
+  "scripts": {
+    "install-all": "npm install && cd server && npm install && cd ../client && npm install",
+    "server": "cd server && npm start",
+    "client": "cd client && npm start",
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "build": "cd client && npm run build",
+    "start": "cd server && npm start"
+  },
+  "dependencies": {
+    "axios": "^1.10.0"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "keywords": [
+    "food",
+    "sharing",
+    "react",
+    "node",
+    "express",
+    "mongodb"
+  ],
+  "author": "Share Dish Team",
+  "license": "MIT"
+}
